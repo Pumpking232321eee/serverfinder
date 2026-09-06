@@ -1,0 +1,426 @@
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local requestFunc = nil
+if syn and syn.request then
+    requestFunc = syn.request
+elseif http and http.request then
+    requestFunc = http.request
+elseif http_request then
+    requestFunc = http_request
+elseif req and req.request then
+    requestFunc = req.request
+elseif request then
+    requestFunc = request
+else
+    error("No supported HTTP request function found!")
+end
+
+local gameName = "Unknown"
+pcall(function()
+    local info = MarketplaceService:GetProductInfo(game.PlaceId)
+    gameName = info.Name or gameName
+end)
+
+local function MakeDraggable(guiObject)
+    local dragging, dragInput, dragStart, startPos
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = guiObject.AbsolutePosition
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            guiObject.Position = UDim2.new(0, startPos.X + delta.X, 0, startPos.Y + delta.Y)
+        end
+    end)
+end
+
+local LowServerFinder = Instance.new("ScreenGui")
+LowServerFinder.Name = "LowServerFinder"
+LowServerFinder.Parent = LocalPlayer:WaitForChild("PlayerGui")
+LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame - Small and Portrait
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = LowServerFinder
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
+MainFrame.Size = UDim2.new(0, 300, 0, 400)
+
+local UICorner_Main = Instance.new("UICorner")
+UICorner_Main.CornerRadius = UDim.new(0, 10)
+UICorner_Main.Parent = MainFrame
+
+local MainFrameStroke = Instance.new("UIStroke")
+MainFrameStroke.Thickness = 1
+MainFrameStroke.Color = Color3.fromRGB(40, 40, 40)
+MainFrameStroke.Parent = MainFrame
+
+-- Title - "SERVER FINDER"
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.BorderSizePixel = 0
+Title.Position = UDim2.new(0, 10, 0, 10)
+Title.Size = UDim2.new(0, 210, 0, 30)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "SERVER FINDER"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextScaled = true
+Title.TextWrapped = true
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Subtitle - "LOW SERVERS" with Refresh button beside it
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Name = "SubTitle"
+SubTitle.Parent = MainFrame
+SubTitle.BackgroundTransparency = 1
+SubTitle.BorderSizePixel = 0
+SubTitle.Position = UDim2.new(0, 10, 0, 40)
+SubTitle.Size = UDim2.new(0, 150, 0, 20)
+SubTitle.Font = Enum.Font.Gotham
+SubTitle.Text = "1 PLAYER SERVERS"
+SubTitle.TextColor3 = Color3.fromRGB(150, 150, 150)
+SubTitle.TextScaled = true
+SubTitle.TextWrapped = true
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Refresh Button (beside subtitle)
+local Refresh = Instance.new("TextButton")
+Refresh.Name = "Refresh"
+Refresh.Parent = MainFrame
+Refresh.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Refresh.BorderSizePixel = 0
+Refresh.Position = UDim2.new(0, 220, 0, 40)
+Refresh.Size = UDim2.new(0, 70, 0, 20)
+Refresh.Font = Enum.Font.GothamBold
+Refresh.Text = "Refresh"
+Refresh.TextColor3 = Color3.fromRGB(200, 200, 200)
+Refresh.TextScaled = true
+Refresh.TextWrapped = true
+Refresh.TextXAlignment = Enum.TextXAlignment.Center
+Refresh.TextYAlignment = Enum.TextYAlignment.Center
+
+local RefreshCorner = Instance.new("UICorner")
+RefreshCorner.CornerRadius = UDim.new(0, 4)
+RefreshCorner.Parent = Refresh
+
+-- Server List Frame (extended height since best server is removed)
+local ServerListFrame = Instance.new("ScrollingFrame")
+ServerListFrame.Name = "ServerListFrame"
+ServerListFrame.Parent = MainFrame
+ServerListFrame.Active = true
+ServerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+ServerListFrame.BorderSizePixel = 0
+ServerListFrame.Position = UDim2.new(0, 10, 0, 70)
+ServerListFrame.Size = UDim2.new(0, 280, 0, 290)
+ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ServerListFrame.ScrollBarThickness = 7
+ServerListFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ServerListFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 4)
+
+-- Server Entry Template
+local ServerFrameTemplate = Instance.new("Frame")
+ServerFrameTemplate.Name = "ServerFrame"
+ServerFrameTemplate.Parent = ServerListFrame
+ServerFrameTemplate.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ServerFrameTemplate.BorderSizePixel = 0
+ServerFrameTemplate.Size = UDim2.new(0, 280, 0, 35)
+ServerFrameTemplate.Visible = false
+
+local ServerCorner = Instance.new("UICorner")
+ServerCorner.CornerRadius = UDim.new(0, 4)
+ServerCorner.Parent = ServerFrameTemplate
+
+-- Server Name (removed rank label)
+local ServerName = Instance.new("TextLabel")
+ServerName.Name = "ServerName"
+ServerName.Parent = ServerFrameTemplate
+ServerName.BackgroundTransparency = 1
+ServerName.Position = UDim2.new(0, 8, 0, 0)
+ServerName.Size = UDim2.new(0, 180, 0, 35)
+ServerName.Font = Enum.Font.Gotham
+ServerName.Text = "Server Name"
+ServerName.TextColor3 = Color3.fromRGB(200, 200, 200)
+ServerName.TextScaled = true
+ServerName.TextWrapped = true
+ServerName.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Server Players
+local ServerPlayers = Instance.new("TextLabel")
+ServerPlayers.Name = "ServerPlayers"
+ServerPlayers.Parent = ServerFrameTemplate
+ServerPlayers.BackgroundTransparency = 1
+ServerPlayers.Position = UDim2.new(0, 190, 0, 0)
+ServerPlayers.Size = UDim2.new(0, 45, 0, 35)
+ServerPlayers.Font = Enum.Font.GothamBold
+ServerPlayers.Text = "0/0"
+ServerPlayers.TextColor3 = Color3.fromRGB(100, 200, 255)
+ServerPlayers.TextScaled = true
+ServerPlayers.TextWrapped = true
+ServerPlayers.TextXAlignment = Enum.TextXAlignment.Right
+
+-- Join Button (bigger and more rectangular)
+local JoinButton = Instance.new("TextButton")
+JoinButton.Name = "JoinButton"
+JoinButton.Parent = ServerFrameTemplate
+JoinButton.BackgroundColor3 = Color3.fromRGB(0, 190, 75)
+JoinButton.BorderSizePixel = 0
+JoinButton.Position = UDim2.new(0, 240, 0, 4)
+JoinButton.Size = UDim2.new(0, 35, 0, 27)
+JoinButton.Font = Enum.Font.GothamBold
+JoinButton.Text = "▶"
+JoinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+JoinButton.TextScaled = true
+JoinButton.TextWrapped = true
+
+local JoinButtonCorner = Instance.new("UICorner")
+JoinButtonCorner.CornerRadius = UDim.new(0, 3)
+JoinButtonCorner.Parent = JoinButton
+
+-- Close Button (fixed with proper background and text)
+local Close = Instance.new("TextButton")
+Close.Name = "Close"
+Close.Parent = MainFrame
+Close.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Close.BackgroundTransparency = 0
+Close.Position = UDim2.new(0, 265, 0, 10)
+Close.Size = UDim2.new(0, 25, 0, 25)
+Close.Font = Enum.Font.GothamBold
+Close.Text = "X"
+Close.TextColor3 = Color3.fromRGB(200, 200, 200)
+Close.TextScaled = true
+Close.TextWrapped = true
+Close.TextXAlignment = Enum.TextXAlignment.Center
+Close.TextYAlignment = Enum.TextYAlignment.Center
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 4)
+CloseCorner.Parent = Close
+
+Close.MouseButton1Click:Connect(function()
+    LowServerFinder:Destroy()
+end)
+
+-- Hide/Show Button (small)
+local HideShow = Instance.new("TextButton")
+HideShow.Name = "HideShow"
+HideShow.Parent = LowServerFinder
+HideShow.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+HideShow.BorderSizePixel = 0
+HideShow.Position = UDim2.new(0, 0, 0.5, -15)
+HideShow.Size = UDim2.new(0, 25, 0, 30)
+HideShow.Font = Enum.Font.Gotham
+HideShow.Text = "◄"
+HideShow.TextColor3 = Color3.fromRGB(255, 255, 255)
+HideShow.TextScaled = true
+HideShow.TextWrapped = true
+
+local HideShowCorner = Instance.new("UICorner")
+HideShowCorner.CornerRadius = UDim.new(0, 6)
+HideShowCorner.Parent = HideShow
+
+local isHidden = false
+HideShow.MouseButton1Click:Connect(function()
+    if not isHidden then
+        local tweenOut = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, 150, 0.5, -200)
+        })
+        tweenOut:Play()
+        HideShow.Text = "►"
+        isHidden = true
+    else
+        MainFrame.Visible = true
+        local tweenIn = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -150, 0.5, -200)
+        })
+        tweenIn:Play()
+        HideShow.Text = "◄"
+        isHidden = false
+    end
+end)
+
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+end)
+
+-- Loading Text
+local LoadingText = Instance.new("TextLabel")
+LoadingText.Name = "LoadingText"
+LoadingText.Parent = MainFrame
+LoadingText.BackgroundTransparency = 1
+LoadingText.Position = UDim2.new(0.5, -75, 0.5, -15)
+LoadingText.Size = UDim2.new(0, 150, 0, 30)
+LoadingText.Font = Enum.Font.Gotham
+LoadingText.Text = "Getting Servers..."
+LoadingText.TextColor3 = Color3.fromRGB(150, 150, 150)
+LoadingText.TextScaled = true
+LoadingText.TextWrapped = true
+LoadingText.Visible = false
+
+local function createServerEntry(serverData, rank)
+    local clone = ServerFrameTemplate:Clone()
+    clone.Name = "ServerFrameClone"
+    clone.Visible = true
+    clone.Parent = ServerListFrame
+    clone.BackgroundTransparency = 1
+    
+    -- Removed rank label, only show server name
+    local nameLabel = clone:FindFirstChild("ServerName")
+    local serverId = string.sub(serverData.id, 1, 8)
+    nameLabel.Text = serverId
+    
+    local playersLabel = clone:FindFirstChild("ServerPlayers")
+    playersLabel.Text = serverData.playing .. "/" .. serverData.maxPlayers
+    
+    local joinBtn = clone:FindFirstChild("JoinButton")
+    joinBtn.MouseButton1Click:Connect(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverData.id, LocalPlayer)
+    end)
+    
+    local fadeIn = TweenService:Create(clone, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundTransparency = 0
+    })
+    fadeIn:Play()
+end
+
+local function fetchServers(cursor)
+    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
+    if cursor then
+        url = url .. "&cursor=" .. cursor
+    end
+    local response = requestFunc({
+        Url = url,
+        Method = "GET"
+    })
+    if response and response.Body then
+        return HttpService:JSONDecode(response.Body)
+    end
+end
+
+local isLoading = false
+
+local function loadServers(showLoading)
+    if isLoading then
+        return
+    end
+    isLoading = true
+
+    -- Clear existing servers
+    for _, child in ipairs(ServerListFrame:GetChildren()) do
+        if child.Name == "ServerFrameClone" then
+            child:Destroy()
+        end
+    end
+    
+    -- Only show loading text if explicitly requested (initial load)
+    if showLoading then
+        LoadingText.Visible = true
+        LoadingText.Text = "Getting Servers..."
+    end
+    
+    local servers = {}
+    local cursor = nil
+    repeat
+        local data = fetchServers(cursor)
+        if data and data.data then
+            for _, server in ipairs(data.data) do
+                table.insert(servers, server)
+            end
+            cursor = data.nextPageCursor
+        else
+            break
+        end
+    until not cursor
+
+    table.sort(servers, function(a, b)
+        return a.playing < b.playing
+    end)
+
+    local displayQueue = {}
+    for _, server in ipairs(servers) do
+        if server.playing == 1 then
+            table.insert(displayQueue, server)
+        end
+    end
+    
+    if #displayQueue > 0 then
+        -- Hide loading text when first server appears
+        LoadingText.Visible = false
+        
+        for i, server in ipairs(displayQueue) do
+            createServerEntry(server, i)
+            if i < #displayQueue then
+                wait(0.5)
+            end
+        end
+    else
+        -- No servers found, show message
+        LoadingText.Text = "No servers found"
+        LoadingText.Visible = true
+        wait(2)
+        LoadingText.Visible = false
+    end
+
+    isLoading = false
+end
+
+-- Refresh button click handler
+Refresh.MouseButton1Click:Connect(function()
+    -- Immediately change text to Refreshed
+    Refresh.Text = "Refreshed"
+    
+    -- After 0.5 seconds, change back to Refresh
+    spawn(function()
+        wait(0.5)
+        Refresh.Text = "Refresh"
+    end)
+    
+    -- Reset the loading state so the function can run again
+    isLoading = false
+    
+    -- Clear all servers immediately
+    for _, child in ipairs(ServerListFrame:GetChildren()) do
+        if child.Name == "ServerFrameClone" then
+            child:Destroy()
+        end
+    end
+    
+    -- Load servers without showing loading text
+    spawn(function()
+        loadServers(false)
+    end)
+end)
+
+-- Initial load with loading text
+spawn(function()
+    loadServers(true)
+end)
+
+MakeDraggable(MainFrame)
