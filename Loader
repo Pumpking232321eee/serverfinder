@@ -27,49 +27,60 @@ pcall(function()
     gameName = info.Name or gameName
 end)
 
--- Fisher-Yates shuffle algorithm
-local function shuffleArray(array)
-    for i = #array, 2, -1 do
-        local j = math.random(1, i)
-        array[i], array[j] = array[j], array[i]
-    end
-    return array
-end
+-- ===== THEME =====
+local BG_MAIN    = Color3.fromRGB(16, 16, 20)
+local BG_PANEL   = Color3.fromRGB(12, 12, 15)
+local BG_CARD    = Color3.fromRGB(24, 24, 29)
+local STROKE     = Color3.fromRGB(34, 34, 41)
+local ACCENT     = Color3.fromRGB(88, 101, 242)
+local SUCCESS    = Color3.fromRGB(35, 165, 90)
+local TEXT_MAIN  = Color3.fromRGB(235, 235, 240)
+local TEXT_SUB   = Color3.fromRGB(140, 140, 150)
 
+-- ===== DRAGGABLE (fixed + smooth) =====
 local function MakeDraggable(guiObject)
-    local dragging, dragInput, dragStart, startPos
+    guiObject.Active = true
+    local dragging = false
     local isDragging = false
-    
+    local dragInputType, dragStart, startPos
+    local dragTweenInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
     guiObject.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             isDragging = false
+            dragInputType = input.UserInputType
             dragStart = input.Position
-            startPos = guiObject.AbsolutePosition
+            startPos = guiObject.Position
         end
     end)
-    
-    guiObject.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-            if dragging then
-                local delta = input.Position - dragStart
-                if delta.Magnitude > 5 then
-                    isDragging = true
-                    guiObject.Position = UDim2.new(0, startPos.X + delta.X, 0, startPos.Y + delta.Y)
-                end
-            end
-        end
-    end)
-    
-    guiObject.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+
+    -- Single persistent listener for release, instead of creating a new
+    -- connection inside InputBegan every time (that was leaking connections).
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == dragInputType then
             dragging = false
-            return not isDragging
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        -- FIX: while dragging, mouse movement fires as MouseMovement (not
+        -- MouseButton1), so comparing against dragInputType here always
+        -- failed for mouse users. Touch worked by coincidence since touch
+        -- movement keeps UserInputType.Touch.
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 5 then isDragging = true end
+            local targetPos = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+            TweenService:Create(guiObject, dragTweenInfo, {Position = targetPos}):Play()
         end
     end)
 end
 
+-- ===== ROOT =====
 local LowServerFinder = Instance.new("ScreenGui")
 LowServerFinder.Name = ""
 LowServerFinder.Parent = game:GetService("CoreGui"):WaitForChild("RobloxGui")
@@ -78,234 +89,401 @@ LowServerFinder.Enabled = true
 
 local MainFrame
 
--- PSF TextButton
+-- Panel state (used by the PSF open/close animation and the minimize button)
+local FULL_HEIGHT = 380
+local MIN_HEIGHT  = 64
+local PANEL_WIDTH = 300
+
+local panelOpen    = true
+local isAnimating  = false
+local isMinimized  = false
+
+local function targetHeight()
+    return isMinimized and MIN_HEIGHT or FULL_HEIGHT
+end
+
+-- ===== PSF TOGGLE BUTTON (Redesigned to match MainFrame) =====
 local PSFButton = Instance.new("TextButton")
 PSFButton.Name = "PSFButton"
 PSFButton.Parent = LowServerFinder
-PSFButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-PSFButton.BackgroundTransparency = 0
+PSFButton.BackgroundColor3 = BG_MAIN
 PSFButton.BorderSizePixel = 0
 PSFButton.Position = UDim2.new(0, 222, 0, 113)
-PSFButton.Size = UDim2.new(0, 58, 0, 58)
+PSFButton.Size = UDim2.new(0, 54, 0, 54)
 PSFButton.Font = Enum.Font.GothamBold
 PSFButton.Text = "PSF"
-PSFButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+PSFButton.TextColor3 = TEXT_MAIN
 PSFButton.TextScaled = true
 PSFButton.TextWrapped = true
-PSFButton.TextXAlignment = Enum.TextXAlignment.Center
-PSFButton.TextYAlignment = Enum.TextYAlignment.Center
 
+-- Main corner radius (matches MainFrame)
 local PSFCorner = Instance.new("UICorner")
-PSFCorner.CornerRadius = UDim.new(1, 0)
+PSFCorner.CornerRadius = UDim.new(0, 50)
 PSFCorner.Parent = PSFButton
 
+-- Stroke (matches MainFrame)
+local PSFStroke = Instance.new("UIStroke")
+PSFStroke.Thickness = 1
+PSFStroke.Color = ACCENT
+PSFStroke.Parent = PSFButton
+
+local function playOpenAnimation()
+    if isAnimating then return end
+    isAnimating = true
+    panelOpen = true
+
+    MainFrame.Visible = true
+    MainFrame.GroupTransparency = 1
+    MainFrame.Size = UDim2.new(0, PANEL_WIDTH * 0.9, 0, targetHeight() * 0.9)
+
+    local openTween = TweenService:Create(MainFrame, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, PANEL_WIDTH, 0, targetHeight()),
+        GroupTransparency = 0
+    })
+    openTween:Play()
+    openTween.Completed:Connect(function()
+        isAnimating = false
+    end)
+end
+
+local function playCloseAnimation()
+    if isAnimating then return end
+    isAnimating = true
+    panelOpen = false
+
+    local closeTween = TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, PANEL_WIDTH * 0.9, 0, targetHeight() * 0.9),
+        GroupTransparency = 1
+    })
+    closeTween:Play()
+    closeTween.Completed:Connect(function()
+        MainFrame.Visible = false
+        isAnimating = false
+    end)
+end
+
 PSFButton.MouseButton1Click:Connect(function()
-    MainFrame.Visible = not MainFrame.Visible
-    
+    if panelOpen then
+        playCloseAnimation()
+    else
+        playOpenAnimation()
+    end
+
     local pulseTween = TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 63, 0, 63)
+        Size = UDim2.new(0, 59, 0, 59)
     })
     pulseTween:Play()
     pulseTween.Completed:Connect(function()
-        local returnTween = TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 58, 0, 58)
-        })
-        returnTween:Play()
+        TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 54, 0, 54)
+        }):Play()
     end)
 end)
 
-MainFrame = Instance.new("Frame")
+-- ===== MAIN FRAME =====
+-- CanvasGroup (not Frame) so the whole panel + its children can fade together
+-- via GroupTransparency, and so minimizing can rely on its built-in clipping
+-- instead of manually hiding every child element.
+MainFrame = Instance.new("CanvasGroup")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = LowServerFinder
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BackgroundColor3 = BG_MAIN
 MainFrame.BorderSizePixel = 0
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
-MainFrame.Size = UDim2.new(0, 300, 0, 400)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0, 300, 0, 380)
 
 local UICorner_Main = Instance.new("UICorner")
-UICorner_Main.CornerRadius = UDim.new(0, 10)
+UICorner_Main.CornerRadius = UDim.new(0, 14)
 UICorner_Main.Parent = MainFrame
 
 local MainFrameStroke = Instance.new("UIStroke")
 MainFrameStroke.Thickness = 1
-MainFrameStroke.Color = Color3.fromRGB(40, 40, 40)
+MainFrameStroke.Color = STROKE
 MainFrameStroke.Parent = MainFrame
 
+-- Title
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Parent = MainFrame
 Title.BackgroundTransparency = 1
-Title.BorderSizePixel = 0
-Title.Position = UDim2.new(0, 10, 0, 10)
-Title.Size = UDim2.new(0, 210, 0, 30)
+Title.Position = UDim2.new(0, 16, 0, 14)
+Title.Size = UDim2.new(0, 200, 0, 20)
 Title.Font = Enum.Font.GothamBold
 Title.Text = "PRIVATE SERVER FINDER"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextColor3 = TEXT_MAIN
 Title.TextScaled = true
 Title.TextWrapped = true
 Title.TextXAlignment = Enum.TextXAlignment.Left
 
-local SubTitle = Instance.new("TextLabel")
-SubTitle.Name = "SubTitle"
-SubTitle.Parent = MainFrame
-SubTitle.BackgroundTransparency = 1
-SubTitle.BorderSizePixel = 0
-SubTitle.Position = UDim2.new(0, 10, 0, 40)
-SubTitle.Size = UDim2.new(0, 150, 0, 20)
-SubTitle.Font = Enum.Font.Gotham
-SubTitle.Text = "1 PLAYER SERVERS"
-SubTitle.TextColor3 = Color3.fromRGB(150, 150, 150)
-SubTitle.TextScaled = true
-SubTitle.TextWrapped = true
-SubTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-local Refresh = Instance.new("TextButton")
-Refresh.Name = "Refresh"
-Refresh.Parent = MainFrame
-Refresh.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-Refresh.BorderSizePixel = 0
-Refresh.Position = UDim2.new(0, 220, 0, 40)
-Refresh.Size = UDim2.new(0, 70, 0, 20)
-Refresh.Font = Enum.Font.GothamBold
-Refresh.Text = "Refresh"
-Refresh.TextColor3 = Color3.fromRGB(200, 200, 200)
-Refresh.TextScaled = true
-Refresh.TextWrapped = true
-Refresh.TextXAlignment = Enum.TextXAlignment.Center
-Refresh.TextYAlignment = Enum.TextYAlignment.Center
-
-local RefreshCorner = Instance.new("UICorner")
-RefreshCorner.CornerRadius = UDim.new(0, 4)
-RefreshCorner.Parent = Refresh
-
-local ServerListFrame = Instance.new("ScrollingFrame")
-ServerListFrame.Name = "ServerListFrame"
-ServerListFrame.Parent = MainFrame
-ServerListFrame.Active = true
-ServerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ServerListFrame.BorderSizePixel = 0
-ServerListFrame.Position = UDim2.new(0, 10, 0, 70)
-ServerListFrame.Size = UDim2.new(0, 280, 0, 250)
-ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-ServerListFrame.ScrollBarThickness = 7
-ServerListFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = ServerListFrame
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 4)
-
-local ServerFrameTemplate = Instance.new("Frame")
-ServerFrameTemplate.Name = "ServerFrame"
-ServerFrameTemplate.Parent = ServerListFrame
-ServerFrameTemplate.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ServerFrameTemplate.BorderSizePixel = 0
-ServerFrameTemplate.Size = UDim2.new(0, 280, 0, 35)
-ServerFrameTemplate.Visible = false
-
-local ServerCorner = Instance.new("UICorner")
-ServerCorner.CornerRadius = UDim.new(0, 4)
-ServerCorner.Parent = ServerFrameTemplate
-
-local ServerName = Instance.new("TextLabel")
-ServerName.Name = "ServerName"
-ServerName.Parent = ServerFrameTemplate
-ServerName.BackgroundTransparency = 1
-ServerName.Position = UDim2.new(0, 8, 0, 0)
-ServerName.Size = UDim2.new(0, 180, 0, 35)
-ServerName.Font = Enum.Font.Gotham
-ServerName.Text = "Server Name"
-ServerName.TextColor3 = Color3.fromRGB(200, 200, 200)
-ServerName.TextScaled = true
-ServerName.TextWrapped = true
-ServerName.TextXAlignment = Enum.TextXAlignment.Left
-
-local ServerPlayers = Instance.new("TextLabel")
-ServerPlayers.Name = "ServerPlayers"
-ServerPlayers.Parent = ServerFrameTemplate
-ServerPlayers.BackgroundTransparency = 1
-ServerPlayers.Position = UDim2.new(0, 190, 0, 0)
-ServerPlayers.Size = UDim2.new(0, 45, 0, 35)
-ServerPlayers.Font = Enum.Font.GothamBold
-ServerPlayers.Text = "0/0"
-ServerPlayers.TextColor3 = Color3.fromRGB(100, 200, 255)
-ServerPlayers.TextScaled = true
-ServerPlayers.TextWrapped = true
-ServerPlayers.TextXAlignment = Enum.TextXAlignment.Right
-
-local JoinButton = Instance.new("TextButton")
-JoinButton.Name = "JoinButton"
-JoinButton.Parent = ServerFrameTemplate
-JoinButton.BackgroundColor3 = Color3.fromRGB(0, 190, 75)
-JoinButton.BorderSizePixel = 0
-JoinButton.Position = UDim2.new(0, 240, 0, 4)
-JoinButton.Size = UDim2.new(0, 35, 0, 27)
-JoinButton.Font = Enum.Font.GothamBold
-JoinButton.Text = "▶"
-JoinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-JoinButton.TextScaled = true
-JoinButton.TextWrapped = true
-
-local JoinButtonCorner = Instance.new("UICorner")
-JoinButtonCorner.CornerRadius = UDim.new(0, 3)
-JoinButtonCorner.Parent = JoinButton
-
+-- Close Button
 local Close = Instance.new("TextButton")
 Close.Name = "Close"
 Close.Parent = MainFrame
-Close.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-Close.BackgroundTransparency = 0
-Close.Position = UDim2.new(0, 265, 0, 10)
-Close.Size = UDim2.new(0, 25, 0, 25)
+Close.BackgroundColor3 = BG_CARD
+Close.BorderSizePixel = 0
+Close.Position = UDim2.new(0, 260, 0, 12)
+Close.Size = UDim2.new(0, 24, 0, 24)
 Close.Font = Enum.Font.GothamBold
 Close.Text = "X"
-Close.TextColor3 = Color3.fromRGB(200, 200, 200)
+Close.TextColor3 = TEXT_SUB
 Close.TextScaled = true
 Close.TextWrapped = true
-Close.TextXAlignment = Enum.TextXAlignment.Center
-Close.TextYAlignment = Enum.TextYAlignment.Center
 
 local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 4)
+CloseCorner.CornerRadius = UDim.new(1, 0)
 CloseCorner.Parent = Close
 
 Close.MouseButton1Click:Connect(function()
     LowServerFinder:Destroy()
 end)
 
+-- Minimize Button (sits directly left of Close)
+local Minimize = Instance.new("TextButton")
+Minimize.Name = "Minimize"
+Minimize.Parent = MainFrame
+Minimize.BackgroundColor3 = BG_CARD
+Minimize.BorderSizePixel = 0
+Minimize.Position = UDim2.new(0, 232, 0, 12)
+Minimize.Size = UDim2.new(0, 24, 0, 24)
+Minimize.Font = Enum.Font.GothamBold
+Minimize.Text = "-"
+Minimize.TextColor3 = TEXT_SUB
+Minimize.TextScaled = true
+Minimize.TextWrapped = true
+
+local MinimizeCorner = Instance.new("UICorner")
+MinimizeCorner.CornerRadius = UDim.new(1, 0)
+MinimizeCorner.Parent = Minimize
+
+local function playMinimizeAnimation()
+    if isAnimating then return end
+    isAnimating = true
+    isMinimized = not isMinimized
+    Minimize.Text = isMinimized and "+" or "-"
+
+    local sizeTween = TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+        Size = UDim2.new(0, PANEL_WIDTH, 0, targetHeight())
+    })
+    sizeTween:Play()
+    sizeTween.Completed:Connect(function()
+        isAnimating = false
+    end)
+end
+
+Minimize.MouseButton1Click:Connect(playMinimizeAnimation)
+
+-- Subtitle + Count Badge
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Name = "SubTitle"
+SubTitle.Parent = MainFrame
+SubTitle.BackgroundTransparency = 1
+SubTitle.Position = UDim2.new(0, 16, 0, 44)
+SubTitle.Size = UDim2.new(0, 110, 0, 16)
+SubTitle.Font = Enum.Font.Gotham
+SubTitle.Text = "1 PLAYER SERVERS"
+SubTitle.TextColor3 = TEXT_SUB
+SubTitle.TextScaled = true
+SubTitle.TextWrapped = true
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+local CountBadge = Instance.new("TextLabel")
+CountBadge.Name = "CountBadge"
+CountBadge.Parent = MainFrame
+CountBadge.BackgroundColor3 = ACCENT
+CountBadge.BackgroundTransparency = 0.8
+CountBadge.BorderSizePixel = 0
+CountBadge.Position = UDim2.new(0, 130, 0, 43)
+CountBadge.Size = UDim2.new(0, 28, 0, 18)
+CountBadge.Font = Enum.Font.GothamBold
+CountBadge.Text = "0"
+CountBadge.TextColor3 = ACCENT
+CountBadge.TextScaled = true
+CountBadge.TextWrapped = true
+
+local CountBadgeCorner = Instance.new("UICorner")
+CountBadgeCorner.CornerRadius = UDim.new(1, 0)
+CountBadgeCorner.Parent = CountBadge
+
+-- Refresh Button
+local Refresh = Instance.new("TextButton")
+Refresh.Name = "Refresh"
+Refresh.Parent = MainFrame
+Refresh.BackgroundColor3 = BG_CARD
+Refresh.BorderSizePixel = 0
+Refresh.Position = UDim2.new(0, 220, 0, 42)
+Refresh.Size = UDim2.new(0, 64, 0, 20)
+Refresh.Font = Enum.Font.GothamBold
+Refresh.Text = "Refresh"
+Refresh.TextColor3 = TEXT_MAIN
+Refresh.TextScaled = true
+Refresh.TextWrapped = true
+
+local RefreshCorner = Instance.new("UICorner")
+RefreshCorner.CornerRadius = UDim.new(0, 6)
+RefreshCorner.Parent = Refresh
+
+local RefreshStroke = Instance.new("UIStroke")
+RefreshStroke.Thickness = 1
+RefreshStroke.Color = STROKE
+RefreshStroke.Parent = Refresh
+
+-- Divider
+local Divider = Instance.new("Frame")
+Divider.Name = "Divider"
+Divider.Parent = MainFrame
+Divider.BackgroundColor3 = STROKE
+Divider.BorderSizePixel = 0
+Divider.Position = UDim2.new(0, 16, 0, 70)
+Divider.Size = UDim2.new(0, 268, 0, 1)
+
+-- Server List
+local ServerListFrame = Instance.new("ScrollingFrame")
+ServerListFrame.Name = "ServerListFrame"
+ServerListFrame.Parent = MainFrame
+ServerListFrame.Active = true
+ServerListFrame.BackgroundColor3 = BG_PANEL
+ServerListFrame.BorderSizePixel = 0
+ServerListFrame.Position = UDim2.new(0, 16, 0, 80)
+ServerListFrame.Size = UDim2.new(0, 268, 0, 266)
+ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ServerListFrame.ScrollBarThickness = 4
+ServerListFrame.ScrollBarImageColor3 = ACCENT
+
+local ServerListCorner = Instance.new("UICorner")
+ServerListCorner.CornerRadius = UDim.new(0, 8)
+ServerListCorner.Parent = ServerListFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ServerListFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 6)
+
+local UIPadding = Instance.new("UIPadding")
+UIPadding.PaddingTop = UDim.new(0, 6)
+UIPadding.PaddingLeft = UDim.new(0, 6)
+UIPadding.PaddingRight = UDim.new(0, 6)
+UIPadding.PaddingBottom = UDim.new(0, 6)
+UIPadding.Parent = ServerListFrame
+
+-- Server Entry Template (taller now, includes ping row)
+local ServerFrameTemplate = Instance.new("Frame")
+ServerFrameTemplate.Name = "ServerFrame"
+ServerFrameTemplate.Parent = ServerListFrame
+ServerFrameTemplate.BackgroundColor3 = BG_CARD
+ServerFrameTemplate.BorderSizePixel = 0
+ServerFrameTemplate.Size = UDim2.new(0, 246, 0, 50)
+ServerFrameTemplate.Visible = false
+
+local ServerCorner = Instance.new("UICorner")
+ServerCorner.CornerRadius = UDim.new(0, 8)
+ServerCorner.Parent = ServerFrameTemplate
+
+local LiveDot = Instance.new("Frame")
+LiveDot.Name = "LiveDot"
+LiveDot.Parent = ServerFrameTemplate
+LiveDot.BackgroundColor3 = SUCCESS
+LiveDot.BorderSizePixel = 0
+LiveDot.Position = UDim2.new(0, 12, 0.5, -3)
+LiveDot.Size = UDim2.new(0, 6, 0, 6)
+
+local LiveDotCorner = Instance.new("UICorner")
+LiveDotCorner.CornerRadius = UDim.new(1, 0)
+LiveDotCorner.Parent = LiveDot
+
+local ServerName = Instance.new("TextLabel")
+ServerName.Name = "ServerName"
+ServerName.Parent = ServerFrameTemplate
+ServerName.BackgroundTransparency = 1
+ServerName.Position = UDim2.new(0, 26, 0, 2)
+ServerName.Size = UDim2.new(0, 100, 0, 20)
+ServerName.Font = Enum.Font.Code
+ServerName.Text = "Server Name"
+ServerName.TextColor3 = TEXT_MAIN
+ServerName.TextScaled = true
+ServerName.TextWrapped = true
+ServerName.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Ping label (new)
+local ServerPing = Instance.new("TextLabel")
+ServerPing.Name = "ServerPing"
+ServerPing.Parent = ServerFrameTemplate
+ServerPing.BackgroundTransparency = 1
+ServerPing.Position = UDim2.new(0, 26, 0, 24)
+ServerPing.Size = UDim2.new(0, 90, 0, 16)
+ServerPing.Font = Enum.Font.Gotham
+ServerPing.Text = "0ms"
+ServerPing.TextColor3 = TEXT_SUB
+ServerPing.TextScaled = true
+ServerPing.TextWrapped = true
+ServerPing.TextXAlignment = Enum.TextXAlignment.Left
+
+local ServerPlayers = Instance.new("TextLabel")
+ServerPlayers.Name = "ServerPlayers"
+ServerPlayers.Parent = ServerFrameTemplate
+ServerPlayers.BackgroundColor3 = ACCENT
+ServerPlayers.BackgroundTransparency = 0.85
+ServerPlayers.BorderSizePixel = 0
+ServerPlayers.Position = UDim2.new(0, 130, 0.5, -10)
+ServerPlayers.Size = UDim2.new(0, 46, 0, 20)
+ServerPlayers.Font = Enum.Font.GothamBold
+ServerPlayers.Text = "0/0"
+ServerPlayers.TextColor3 = ACCENT
+ServerPlayers.TextScaled = true
+ServerPlayers.TextWrapped = true
+
+local ServerPlayersCorner = Instance.new("UICorner")
+ServerPlayersCorner.CornerRadius = UDim.new(0, 6)
+ServerPlayersCorner.Parent = ServerPlayers
+
+local JoinButton = Instance.new("TextButton")
+JoinButton.Name = "JoinButton"
+JoinButton.Parent = ServerFrameTemplate
+JoinButton.BackgroundColor3 = SUCCESS
+JoinButton.BorderSizePixel = 0
+JoinButton.Position = UDim2.new(0, 188, 0.5, -13)
+JoinButton.Size = UDim2.new(0, 48, 0, 26)
+JoinButton.Font = Enum.Font.GothamBold
+JoinButton.Text = "JOIN"
+JoinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+JoinButton.TextScaled = true
+JoinButton.TextWrapped = true
+
+local JoinButtonCorner = Instance.new("UICorner")
+JoinButtonCorner.CornerRadius = UDim.new(0, 6)
+JoinButtonCorner.Parent = JoinButton
+
 UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+    ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 12)
 end)
 
+-- Loading Text
 local LoadingText = Instance.new("TextLabel")
 LoadingText.Name = "LoadingText"
-LoadingText.Parent = MainFrame
+LoadingText.Parent = ServerListFrame
 LoadingText.BackgroundTransparency = 1
-LoadingText.Position = UDim2.new(0.5, -75, 0.5, -15)
-LoadingText.Size = UDim2.new(0, 150, 0, 30)
+LoadingText.Position = UDim2.new(0.5, -100, 0, 100)
+LoadingText.Size = UDim2.new(0, 200, 0, 30)
 LoadingText.Font = Enum.Font.Gotham
 LoadingText.Text = "Getting Servers..."
-LoadingText.TextColor3 = Color3.fromRGB(150, 150, 150)
+LoadingText.TextColor3 = TEXT_SUB
 LoadingText.TextScaled = true
 LoadingText.TextWrapped = true
 LoadingText.Visible = false
 
-local ServerHopButton = Instance.new("TextButton")
-ServerHopButton.Name = "ServerHopButton"
-ServerHopButton.Parent = MainFrame
-ServerHopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-ServerHopButton.BorderSizePixel = 0
-ServerHopButton.Position = UDim2.new(0, 10, 0, 330)
-ServerHopButton.Size = UDim2.new(0, 280, 0, 30)
-ServerHopButton.Font = Enum.Font.GothamBold
-ServerHopButton.Text = "SERVER HOP 1 PLAYER"
-ServerHopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ServerHopButton.TextScaled = true
-ServerHopButton.TextWrapped = true
-
-local ServerHopCorner = Instance.new("UICorner")
-ServerHopCorner.CornerRadius = UDim.new(0, 6)
-ServerHopCorner.Parent = ServerHopButton
+-- Footer status line
+local FooterText = Instance.new("TextLabel")
+FooterText.Name = "FooterText"
+FooterText.Parent = MainFrame
+FooterText.BackgroundTransparency = 1
+FooterText.Position = UDim2.new(0, 16, 0, 352)
+FooterText.Size = UDim2.new(0, 268, 0, 18)
+FooterText.Font = Enum.Font.Gotham
+FooterText.Text = "Searching..."
+FooterText.TextColor3 = TEXT_SUB
+FooterText.TextScaled = true
+FooterText.TextWrapped = true
+FooterText.TextXAlignment = Enum.TextXAlignment.Center
 
 local function createServerEntry(serverData, rank)
     local clone = ServerFrameTemplate:Clone()
@@ -313,23 +491,34 @@ local function createServerEntry(serverData, rank)
     clone.Visible = true
     clone.Parent = ServerListFrame
     clone.BackgroundTransparency = 1
-    
+    clone.LayoutOrder = rank
+
     local nameLabel = clone:FindFirstChild("ServerName")
-    local serverId = string.sub(serverData.id, 1, 8)
-    nameLabel.Text = serverId
-    
+    nameLabel.Text = string.sub(serverData.id, 1, 8)
+
     local playersLabel = clone:FindFirstChild("ServerPlayers")
     playersLabel.Text = serverData.playing .. "/" .. serverData.maxPlayers
-    
+
+    -- Ping, pulled straight from the API's own server.ping field
+    local pingLabel = clone:FindFirstChild("ServerPing")
+    local ping = math.floor(tonumber(serverData.ping) or 0)
+    pingLabel.Text = ping .. "ms ping"
+    if ping <= 80 then
+        pingLabel.TextColor3 = Color3.fromRGB(90, 200, 120)   -- good
+    elseif ping <= 150 then
+        pingLabel.TextColor3 = Color3.fromRGB(230, 190, 80)   -- ok
+    else
+        pingLabel.TextColor3 = Color3.fromRGB(230, 90, 90)    -- bad
+    end
+
     local joinBtn = clone:FindFirstChild("JoinButton")
     joinBtn.MouseButton1Click:Connect(function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, serverData.id, LocalPlayer)
     end)
-    
-    local fadeIn = TweenService:Create(clone, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+
+    TweenService:Create(clone, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundTransparency = 0
-    })
-    fadeIn:Play()
+    }):Play()
 end
 
 local function fetchServers(cursor)
@@ -337,43 +526,35 @@ local function fetchServers(cursor)
     if cursor then
         url = url .. "&cursor=" .. cursor
     end
-    local response = requestFunc({
-        Url = url,
-        Method = "GET"
-    })
+    local response = requestFunc({ Url = url, Method = "GET" })
     if response and response.Body then
         return HttpService:JSONDecode(response.Body)
     end
 end
 
 local isLoading = false
-local isHoping = false
 
--- FAST LOAD: Only fetch 2 pages max for instant results
 local function loadServersFast(showLoading)
-    if isLoading then
-        return
-    end
+    if isLoading then return end
     isLoading = true
 
-    -- Clear existing servers
     for _, child in ipairs(ServerListFrame:GetChildren()) do
         if child.Name == "ServerFrameClone" then
             child:Destroy()
         end
     end
-    
-    -- Show loading text briefly
+
     if showLoading then
         LoadingText.Visible = true
-        LoadingText.Text = "Loading Servers..."
+        LoadingText.Text = "Getting Servers..."
+        FooterText.Text = "Searching..."
     end
-    
+
     local servers = {}
     local cursor = nil
     local pageCount = 0
-    local maxPages = 1 -- Only fetch 2 pages max for speed
-    
+    local maxPages = 1
+
     repeat
         local data = fetchServers(cursor)
         if data and data.data then
@@ -387,120 +568,54 @@ local function loadServersFast(showLoading)
         end
     until not cursor or pageCount >= maxPages
 
-    -- Filter only 1 player servers
     local displayQueue = {}
     for _, server in ipairs(servers) do
         if server.playing == 1 then
             table.insert(displayQueue, server)
         end
     end
-    
-    -- SHUFFLE the display queue for random order
-    shuffleArray(displayQueue)
-    
-    -- Hide loading text immediately
+
+    -- Sort by lowest ping first (same idea as the standalone auto-hop example,
+    -- applied across the whole list instead of picking just one)
+    table.sort(displayQueue, function(a, b)
+        return (tonumber(a.ping) or 999) < (tonumber(b.ping) or 999)
+    end)
+
     LoadingText.Visible = false
-    
+    CountBadge.Text = tostring(#displayQueue)
+
     if #displayQueue > 0 then
-        -- Show servers instantly with no delay
         for i, server in ipairs(displayQueue) do
             createServerEntry(server, i)
         end
+        FooterText.Text = #displayQueue .. " server" .. (#displayQueue == 1 and "" or "s") .. " found"
     else
-        -- No servers found, show message
-        LoadingText.Text = "No servers found"
-        LoadingText.Visible = true
-        wait(1.5)
-        LoadingText.Visible = false
+        FooterText.Text = "No servers found"
     end
 
     isLoading = false
 end
 
--- Function to get random 1 player server (fast)
-local function getRandomOnePlayerServer()
-    local servers = {}
-    local cursor = nil
-    local pageCount = 0
-    local maxPages = 2
-    
-    repeat
-        local data = fetchServers(cursor)
-        if data and data.data then
-            for _, server in ipairs(data.data) do
-                if server.playing == 1 and server.id ~= game.JobId then
-                    table.insert(servers, server)
-                end
-            end
-            cursor = data.nextPageCursor
-            pageCount = pageCount + 1
-        else
-            break
-        end
-    until not cursor or pageCount >= maxPages
-    
-    if #servers > 0 then
-        local randomIndex = math.random(1, #servers)
-        return servers[randomIndex]
-    end
-    return nil
-end
-
--- Server Hop Button click handler
-ServerHopButton.MouseButton1Click:Connect(function()
-    if isHoping then
-        return
-    end
-    
-    isHoping = true
-    
-    local foundServer = nil
-    
-    local success = pcall(function()
-        foundServer = getRandomOnePlayerServer()
-    end)
-    
-    if not success then
-        isHoping = false
-        return
-    end
-    
-    if foundServer then
-        local currentJobId = game.JobId
-        if foundServer.id ~= currentJobId then
-            pcall(function()
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, foundServer.id, LocalPlayer)
-            end)
-        end
-        isHoping = false
-    else
-        isHoping = false
-    end
-end)
-
--- Refresh button click handler
 Refresh.MouseButton1Click:Connect(function()
-    Refresh.Text = "Refreshed"
-    
+    Refresh.Text = "Done"
     spawn(function()
         wait(0.5)
         Refresh.Text = "Refresh"
     end)
-    
+
     isLoading = false
-    
+
     for _, child in ipairs(ServerListFrame:GetChildren()) do
         if child.Name == "ServerFrameClone" then
             child:Destroy()
         end
     end
-    
+
     spawn(function()
         loadServersFast(false)
     end)
 end)
 
--- Initial load - FAST
 spawn(function()
     loadServersFast(true)
 end)
