@@ -511,31 +511,44 @@ local function createServerEntry(serverData, rank)
         if isTeleporting then return end
         if clone:GetAttribute("IsJoining") then return end
         
+        -- Set teleporting flag
+        isTeleporting = true
         clone:SetAttribute("IsJoining", true)
-        joinBtn.Text = "Joining..."
+        joinBtn.Text = "..."
         joinBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 50)
         joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         
         local serverId = clone:GetAttribute("ServerId")
-        local success, err = pcall(function()
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+        
+        -- Use spawn to prevent blocking
+        spawn(function()
+            local success, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+            end)
+            
+            -- IMPORTANT: Reset teleporting flag regardless of success/failure
+            isTeleporting = false
+            clone:SetAttribute("IsJoining", false)
+            
+            -- Reset button state (if still exists)
+            if joinBtn and joinBtn.Parent then
+                joinBtn.Text = "JOIN"
+                joinBtn.BackgroundColor3 = SUCCESS
+                joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+            
+            if not success then
+                -- Teleport failed, show a brief error message in footer
+                FooterText.Text = "Failed to join: " .. (err or "Server may be full")
+                FooterText.TextColor3 = Color3.fromRGB(230, 90, 90)
+                wait(3)
+                -- Only update footer if we haven't started a new load
+                if not isLoading then
+                    FooterText.Text = CountBadge.Text .. " server" .. (tonumber(CountBadge.Text) == 1 and "" or "s") .. " found"
+                    FooterText.TextColor3 = TEXT_SUB
+                end
+            end
         end)
-        
-        -- Reset button state after teleport attempt (or if it fails)
-        wait(0.5)
-        clone:SetAttribute("IsJoining", false)
-        joinBtn.Text = "JOIN"
-        joinBtn.BackgroundColor3 = SUCCESS
-        joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        
-        if not success then
-            -- Teleport failed, show a brief error message in footer
-            FooterText.Text = "Failed to join: " .. (err or "Server may be full")
-            FooterText.TextColor3 = Color3.fromRGB(230, 90, 90)
-            wait(3)
-            FooterText.Text = CountBadge.Text .. " server" .. (tonumber(CountBadge.Text) == 1 and "" or "s") .. " found"
-            FooterText.TextColor3 = TEXT_SUB
-        end
     end)
 
     TweenService:Create(clone, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -640,6 +653,9 @@ local function loadServersFast(showLoading)
 end
 
 Refresh.MouseButton1Click:Connect(function()
+    -- Don't allow refresh if currently loading
+    if isLoading then return end
+    
     Refresh.Text = "Refreshing..."
     spawn(function()
         wait(0.5)
