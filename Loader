@@ -86,7 +86,7 @@ Title.BorderSizePixel = 0
 Title.Position = UDim2.new(0, 10, 0, 10)
 Title.Size = UDim2.new(0, 210, 0, 30)
 Title.Font = Enum.Font.GothamBold
-Title.Text = "SERVER FINDER"
+Title.Text = "PRIVATE SERVER FINDER"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextScaled = true
 Title.TextWrapped = true
@@ -135,7 +135,7 @@ ServerListFrame.Active = true
 ServerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 ServerListFrame.BorderSizePixel = 0
 ServerListFrame.Position = UDim2.new(0, 10, 0, 70)
-ServerListFrame.Size = UDim2.new(0, 280, 0, 290)
+ServerListFrame.Size = UDim2.new(0, 280, 0, 250)
 ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 ServerListFrame.ScrollBarThickness = 7
 ServerListFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
@@ -284,6 +284,24 @@ LoadingText.TextScaled = true
 LoadingText.TextWrapped = true
 LoadingText.Visible = false
 
+-- Server Hop 1 Player Button (at the bottom)
+local ServerHopButton = Instance.new("TextButton")
+ServerHopButton.Name = "ServerHopButton"
+ServerHopButton.Parent = MainFrame
+ServerHopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+ServerHopButton.BorderSizePixel = 0
+ServerHopButton.Position = UDim2.new(0, 10, 0, 330)
+ServerHopButton.Size = UDim2.new(0, 280, 0, 30)
+ServerHopButton.Font = Enum.Font.GothamBold
+ServerHopButton.Text = "SERVER HOP 1 PLAYER"
+ServerHopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ServerHopButton.TextScaled = true
+ServerHopButton.TextWrapped = true
+
+local ServerHopCorner = Instance.new("UICorner")
+ServerHopCorner.CornerRadius = UDim.new(0, 6)
+ServerHopCorner.Parent = ServerHopButton
+
 local function createServerEntry(serverData, rank)
     local clone = ServerFrameTemplate:Clone()
     clone.Name = "ServerFrameClone"
@@ -325,6 +343,7 @@ local function fetchServers(cursor)
 end
 
 local isLoading = false
+local isHoping = false
 
 local function loadServers(showLoading)
     if isLoading then
@@ -390,6 +409,68 @@ local function loadServers(showLoading)
 
     isLoading = false
 end
+
+-- Function to get all servers with 1 player
+local function getOnePlayerServers()
+    local servers = {}
+    local cursor = nil
+    repeat
+        local data = fetchServers(cursor)
+        if data and data.data then
+            for _, server in ipairs(data.data) do
+                if server.playing == 1 then
+                    table.insert(servers, server)
+                end
+            end
+            cursor = data.nextPageCursor
+        else
+            break
+        end
+    until not cursor
+    return servers
+end
+
+-- Server Hop Button click handler (Simple 1-tap)
+ServerHopButton.MouseButton1Click:Connect(function()
+    -- Don't do anything if already hoping
+    if isHoping then
+        return
+    end
+    
+    isHoping = true
+    
+    local foundServer = nil
+    
+    local success, errorMsg = pcall(function()
+        local onePlayerServers = getOnePlayerServers()
+        if #onePlayerServers > 0 then
+            -- Pick a random 1 player server
+            local randomIndex = math.random(1, #onePlayerServers)
+            foundServer = onePlayerServers[randomIndex]
+        end
+    end)
+    
+    if not success then
+        isHoping = false
+        return
+    end
+    
+    if foundServer then
+        -- Check if the server is the current one
+        local currentJobId = game.JobId
+        if foundServer.id ~= currentJobId then
+            -- Teleport to the found server
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, foundServer.id, LocalPlayer)
+            end)
+        end
+        -- If it's the same server or teleport fails, just reset the button
+        isHoping = false
+    else
+        -- No 1 player server found
+        isHoping = false
+    end
+end)
 
 -- Refresh button click handler
 Refresh.MouseButton1Click:Connect(function()
