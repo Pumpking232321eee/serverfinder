@@ -27,6 +27,15 @@ pcall(function()
     gameName = info.Name or gameName
 end)
 
+-- Fisher-Yates shuffle algorithm
+local function shuffleArray(array)
+    for i = #array, 2, -1 do
+        local j = math.random(1, i)
+        array[i], array[j] = array[j], array[i]
+    end
+    return array
+end
+
 local function MakeDraggable(guiObject)
     local dragging, dragInput, dragStart, startPos
     local isDragging = false
@@ -56,7 +65,6 @@ local function MakeDraggable(guiObject)
     guiObject.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
-            -- Return whether it was a click (not a drag)
             return not isDragging
         end
     end)
@@ -66,12 +74,11 @@ local LowServerFinder = Instance.new("ScreenGui")
 LowServerFinder.Name = ""
 LowServerFinder.Parent = game:GetService("CoreGui"):WaitForChild("RobloxGui")
 LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-LowServerFinder.Enabled = true -- Start visible
+LowServerFinder.Enabled = true
 
--- Forward declare so the click handler below captures the right variable
 local MainFrame
 
--- PSF TextButton (positioned at 222, 113 with size 58, 58)
+-- PSF TextButton
 local PSFButton = Instance.new("TextButton")
 PSFButton.Name = "PSFButton"
 PSFButton.Parent = LowServerFinder
@@ -88,17 +95,13 @@ PSFButton.TextWrapped = true
 PSFButton.TextXAlignment = Enum.TextXAlignment.Center
 PSFButton.TextYAlignment = Enum.TextYAlignment.Center
 
--- PSF Button Corner
 local PSFCorner = Instance.new("UICorner")
 PSFCorner.CornerRadius = UDim.new(1, 0)
 PSFCorner.Parent = PSFButton
 
--- PSF Button Click Handler (toggle MainFrame visibility)
 PSFButton.MouseButton1Click:Connect(function()
-    -- Toggle GUI visibility
     MainFrame.Visible = not MainFrame.Visible
     
-    -- Animate button pulse
     local pulseTween = TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, 63, 0, 63)
     })
@@ -111,8 +114,7 @@ PSFButton.MouseButton1Click:Connect(function()
     end)
 end)
 
--- Main Frame - Small and Portrait
-MainFrame = Instance.new("Frame")   -- note: no "local" here anymore, just assign
+MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = LowServerFinder
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -129,7 +131,6 @@ MainFrameStroke.Thickness = 1
 MainFrameStroke.Color = Color3.fromRGB(40, 40, 40)
 MainFrameStroke.Parent = MainFrame
 
--- Title - "SERVER FINDER"
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Parent = MainFrame
@@ -144,7 +145,6 @@ Title.TextScaled = true
 Title.TextWrapped = true
 Title.TextXAlignment = Enum.TextXAlignment.Left
 
--- Subtitle - "LOW SERVERS" with Refresh button beside it
 local SubTitle = Instance.new("TextLabel")
 SubTitle.Name = "SubTitle"
 SubTitle.Parent = MainFrame
@@ -159,7 +159,6 @@ SubTitle.TextScaled = true
 SubTitle.TextWrapped = true
 SubTitle.TextXAlignment = Enum.TextXAlignment.Left
 
--- Refresh Button (beside subtitle)
 local Refresh = Instance.new("TextButton")
 Refresh.Name = "Refresh"
 Refresh.Parent = MainFrame
@@ -179,7 +178,6 @@ local RefreshCorner = Instance.new("UICorner")
 RefreshCorner.CornerRadius = UDim.new(0, 4)
 RefreshCorner.Parent = Refresh
 
--- Server List Frame (extended height since best server is removed)
 local ServerListFrame = Instance.new("ScrollingFrame")
 ServerListFrame.Name = "ServerListFrame"
 ServerListFrame.Parent = MainFrame
@@ -197,7 +195,6 @@ UIListLayout.Parent = ServerListFrame
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 4)
 
--- Server Entry Template
 local ServerFrameTemplate = Instance.new("Frame")
 ServerFrameTemplate.Name = "ServerFrame"
 ServerFrameTemplate.Parent = ServerListFrame
@@ -210,7 +207,6 @@ local ServerCorner = Instance.new("UICorner")
 ServerCorner.CornerRadius = UDim.new(0, 4)
 ServerCorner.Parent = ServerFrameTemplate
 
--- Server Name (removed rank label)
 local ServerName = Instance.new("TextLabel")
 ServerName.Name = "ServerName"
 ServerName.Parent = ServerFrameTemplate
@@ -224,7 +220,6 @@ ServerName.TextScaled = true
 ServerName.TextWrapped = true
 ServerName.TextXAlignment = Enum.TextXAlignment.Left
 
--- Server Players
 local ServerPlayers = Instance.new("TextLabel")
 ServerPlayers.Name = "ServerPlayers"
 ServerPlayers.Parent = ServerFrameTemplate
@@ -238,7 +233,6 @@ ServerPlayers.TextScaled = true
 ServerPlayers.TextWrapped = true
 ServerPlayers.TextXAlignment = Enum.TextXAlignment.Right
 
--- Join Button (bigger and more rectangular)
 local JoinButton = Instance.new("TextButton")
 JoinButton.Name = "JoinButton"
 JoinButton.Parent = ServerFrameTemplate
@@ -256,7 +250,6 @@ local JoinButtonCorner = Instance.new("UICorner")
 JoinButtonCorner.CornerRadius = UDim.new(0, 3)
 JoinButtonCorner.Parent = JoinButton
 
--- Close Button (fixed with proper background and text)
 local Close = Instance.new("TextButton")
 Close.Name = "Close"
 Close.Parent = MainFrame
@@ -284,7 +277,6 @@ UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
     ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
 end)
 
--- Loading Text
 local LoadingText = Instance.new("TextLabel")
 LoadingText.Name = "LoadingText"
 LoadingText.Parent = MainFrame
@@ -298,7 +290,6 @@ LoadingText.TextScaled = true
 LoadingText.TextWrapped = true
 LoadingText.Visible = false
 
--- Server Hop 1 Player Button (at the bottom)
 local ServerHopButton = Instance.new("TextButton")
 ServerHopButton.Name = "ServerHopButton"
 ServerHopButton.Parent = MainFrame
@@ -323,7 +314,6 @@ local function createServerEntry(serverData, rank)
     clone.Parent = ServerListFrame
     clone.BackgroundTransparency = 1
     
-    -- Removed rank label, only show server name
     local nameLabel = clone:FindFirstChild("ServerName")
     local serverId = string.sub(serverData.id, 1, 8)
     nameLabel.Text = serverId
@@ -359,7 +349,8 @@ end
 local isLoading = false
 local isHoping = false
 
-local function loadServers(showLoading)
+-- FAST LOAD: Only fetch 2 pages max for instant results
+local function loadServersFast(showLoading)
     if isLoading then
         return
     end
@@ -372,14 +363,17 @@ local function loadServers(showLoading)
         end
     end
     
-    -- Only show loading text if explicitly requested (initial load)
+    -- Show loading text briefly
     if showLoading then
         LoadingText.Visible = true
-        LoadingText.Text = "Getting Servers..."
+        LoadingText.Text = "Loading Servers..."
     end
     
     local servers = {}
     local cursor = nil
+    local pageCount = 0
+    local maxPages = 1 -- Only fetch 2 pages max for speed
+    
     repeat
         local data = fetchServers(cursor)
         if data and data.data then
@@ -387,15 +381,13 @@ local function loadServers(showLoading)
                 table.insert(servers, server)
             end
             cursor = data.nextPageCursor
+            pageCount = pageCount + 1
         else
             break
         end
-    until not cursor
+    until not cursor or pageCount >= maxPages
 
-    table.sort(servers, function(a, b)
-        return a.playing < b.playing
-    end)
-
+    -- Filter only 1 player servers
     local displayQueue = {}
     for _, server in ipairs(servers) do
         if server.playing == 1 then
@@ -403,50 +395,59 @@ local function loadServers(showLoading)
         end
     end
     
+    -- SHUFFLE the display queue for random order
+    shuffleArray(displayQueue)
+    
+    -- Hide loading text immediately
+    LoadingText.Visible = false
+    
     if #displayQueue > 0 then
-        -- Hide loading text when first server appears
-        LoadingText.Visible = false
-        
+        -- Show servers instantly with no delay
         for i, server in ipairs(displayQueue) do
             createServerEntry(server, i)
-            if i < #displayQueue then
-                wait(0.5)
-            end
         end
     else
         -- No servers found, show message
         LoadingText.Text = "No servers found"
         LoadingText.Visible = true
-        wait(2)
+        wait(1.5)
         LoadingText.Visible = false
     end
 
     isLoading = false
 end
 
--- Function to get all servers with 1 player
-local function getOnePlayerServers()
+-- Function to get random 1 player server (fast)
+local function getRandomOnePlayerServer()
     local servers = {}
     local cursor = nil
+    local pageCount = 0
+    local maxPages = 2
+    
     repeat
         local data = fetchServers(cursor)
         if data and data.data then
             for _, server in ipairs(data.data) do
-                if server.playing == 1 then
+                if server.playing == 1 and server.id ~= game.JobId then
                     table.insert(servers, server)
                 end
             end
             cursor = data.nextPageCursor
+            pageCount = pageCount + 1
         else
             break
         end
-    until not cursor
-    return servers
+    until not cursor or pageCount >= maxPages
+    
+    if #servers > 0 then
+        local randomIndex = math.random(1, #servers)
+        return servers[randomIndex]
+    end
+    return nil
 end
 
--- Server Hop Button click handler (Simple 1-tap)
+-- Server Hop Button click handler
 ServerHopButton.MouseButton1Click:Connect(function()
-    -- Don't do anything if already hoping
     if isHoping then
         return
     end
@@ -455,13 +456,8 @@ ServerHopButton.MouseButton1Click:Connect(function()
     
     local foundServer = nil
     
-    local success, errorMsg = pcall(function()
-        local onePlayerServers = getOnePlayerServers()
-        if #onePlayerServers > 0 then
-            -- Pick a random 1 player server
-            local randomIndex = math.random(1, #onePlayerServers)
-            foundServer = onePlayerServers[randomIndex]
-        end
+    local success = pcall(function()
+        foundServer = getRandomOnePlayerServer()
     end)
     
     if not success then
@@ -470,52 +466,43 @@ ServerHopButton.MouseButton1Click:Connect(function()
     end
     
     if foundServer then
-        -- Check if the server is the current one
         local currentJobId = game.JobId
         if foundServer.id ~= currentJobId then
-            -- Teleport to the found server
             pcall(function()
                 TeleportService:TeleportToPlaceInstance(game.PlaceId, foundServer.id, LocalPlayer)
             end)
         end
-        -- If it's the same server or teleport fails, just reset the button
         isHoping = false
     else
-        -- No 1 player server found
         isHoping = false
     end
 end)
 
 -- Refresh button click handler
 Refresh.MouseButton1Click:Connect(function()
-    -- Immediately change text to Refreshed
     Refresh.Text = "Refreshed"
     
-    -- After 0.5 seconds, change back to Refresh
     spawn(function()
         wait(0.5)
         Refresh.Text = "Refresh"
     end)
     
-    -- Reset the loading state so the function can run again
     isLoading = false
     
-    -- Clear all servers immediately
     for _, child in ipairs(ServerListFrame:GetChildren()) do
         if child.Name == "ServerFrameClone" then
             child:Destroy()
         end
     end
     
-    -- Load servers without showing loading text
     spawn(function()
-        loadServers(false)
+        loadServersFast(false)
     end)
 end)
 
--- Initial load with loading text
+-- Initial load - FAST
 spawn(function()
-    loadServers(true)
+    loadServersFast(true)
 end)
 
 MakeDraggable(MainFrame)
