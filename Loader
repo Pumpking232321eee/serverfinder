@@ -56,7 +56,7 @@ end
 
 local LowServerFinder = Instance.new("ScreenGui")
 LowServerFinder.Name = ""
-LowServerFinder.Parent = LocalPlayer:WaitForChild("PlayerGui")
+LowServerFinder.Parent = game:GetService("CoreGui"):WaitForChild("RobloxGui")
 LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 -- Main Frame - Small and Portrait
