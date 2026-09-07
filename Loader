@@ -29,27 +29,35 @@ end)
 
 local function MakeDraggable(guiObject)
     local dragging, dragInput, dragStart, startPos
+    local isDragging = false
+    
     guiObject.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
+            isDragging = false
             dragStart = input.Position
             startPos = guiObject.AbsolutePosition
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
         end
     end)
+    
     guiObject.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
+            if dragging then
+                local delta = input.Position - dragStart
+                if delta.Magnitude > 5 then
+                    isDragging = true
+                    guiObject.Position = UDim2.new(0, startPos.X + delta.X, 0, startPos.Y + delta.Y)
+                end
+            end
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            guiObject.Position = UDim2.new(0, startPos.X + delta.X, 0, startPos.Y + delta.Y)
+    
+    guiObject.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            -- Return whether it was a click (not a drag)
+            return not isDragging
         end
     end)
 end
@@ -58,9 +66,53 @@ local LowServerFinder = Instance.new("ScreenGui")
 LowServerFinder.Name = ""
 LowServerFinder.Parent = game:GetService("CoreGui"):WaitForChild("RobloxGui")
 LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+LowServerFinder.Enabled = true -- Start visible
+
+-- Forward declare so the click handler below captures the right variable
+local MainFrame
+
+-- PSF TextButton (positioned at 222, 113 with size 58, 58)
+local PSFButton = Instance.new("TextButton")
+PSFButton.Name = "PSFButton"
+PSFButton.Parent = LowServerFinder
+PSFButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+PSFButton.BackgroundTransparency = 0
+PSFButton.BorderSizePixel = 0
+PSFButton.Position = UDim2.new(0, 222, 0, 113)
+PSFButton.Size = UDim2.new(0, 58, 0, 58)
+PSFButton.Font = Enum.Font.GothamBold
+PSFButton.Text = "PSF"
+PSFButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+PSFButton.TextScaled = true
+PSFButton.TextWrapped = true
+PSFButton.TextXAlignment = Enum.TextXAlignment.Center
+PSFButton.TextYAlignment = Enum.TextYAlignment.Center
+
+-- PSF Button Corner
+local PSFCorner = Instance.new("UICorner")
+PSFCorner.CornerRadius = UDim.new(1, 0)
+PSFCorner.Parent = PSFButton
+
+-- PSF Button Click Handler (toggle MainFrame visibility)
+PSFButton.MouseButton1Click:Connect(function()
+    -- Toggle GUI visibility
+    MainFrame.Visible = not MainFrame.Visible
+    
+    -- Animate button pulse
+    local pulseTween = TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 63, 0, 63)
+    })
+    pulseTween:Play()
+    pulseTween.Completed:Connect(function()
+        local returnTween = TweenService:Create(PSFButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 58, 0, 58)
+        })
+        returnTween:Play()
+    end)
+end)
 
 -- Main Frame - Small and Portrait
-local MainFrame = Instance.new("Frame")
+MainFrame = Instance.new("Frame")   -- note: no "local" here anymore, just assign
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = LowServerFinder
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -226,44 +278,6 @@ CloseCorner.Parent = Close
 
 Close.MouseButton1Click:Connect(function()
     LowServerFinder:Destroy()
-end)
-
--- Hide/Show Button (small)
-local HideShow = Instance.new("TextButton")
-HideShow.Name = "HideShow"
-HideShow.Parent = LowServerFinder
-HideShow.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-HideShow.BorderSizePixel = 0
-HideShow.Position = UDim2.new(0, 0, 0.5, -15)
-HideShow.Size = UDim2.new(0, 25, 0, 30)
-HideShow.Font = Enum.Font.Gotham
-HideShow.Text = "◄"
-HideShow.TextColor3 = Color3.fromRGB(255, 255, 255)
-HideShow.TextScaled = true
-HideShow.TextWrapped = true
-
-local HideShowCorner = Instance.new("UICorner")
-HideShowCorner.CornerRadius = UDim.new(0, 6)
-HideShowCorner.Parent = HideShow
-
-local isHidden = false
-HideShow.MouseButton1Click:Connect(function()
-    if not isHidden then
-        local tweenOut = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Position = UDim2.new(0.5, 150, 0.5, -200)
-        })
-        tweenOut:Play()
-        HideShow.Text = "►"
-        isHidden = true
-    else
-        MainFrame.Visible = true
-        local tweenIn = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Position = UDim2.new(0.5, -150, 0.5, -200)
-        })
-        tweenIn:Play()
-        HideShow.Text = "◄"
-        isHidden = false
-    end
 end)
 
 UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
