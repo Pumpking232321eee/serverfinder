@@ -55,8 +55,6 @@ local function MakeDraggable(guiObject)
         end
     end)
 
-    -- Single persistent listener for release, instead of creating a new
-    -- connection inside InputBegan every time (that was leaking connections).
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == dragInputType then
             dragging = false
@@ -64,10 +62,6 @@ local function MakeDraggable(guiObject)
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-        -- FIX: while dragging, mouse movement fires as MouseMovement (not
-        -- MouseButton1), so comparing against dragInputType here always
-        -- failed for mouse users. Touch worked by coincidence since touch
-        -- movement keeps UserInputType.Touch.
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
             if delta.Magnitude > 5 then isDragging = true end
@@ -116,12 +110,10 @@ PSFButton.TextColor3 = TEXT_MAIN
 PSFButton.TextScaled = true
 PSFButton.TextWrapped = true
 
--- Main corner radius (matches MainFrame)
 local PSFCorner = Instance.new("UICorner")
 PSFCorner.CornerRadius = UDim.new(0, 50)
 PSFCorner.Parent = PSFButton
 
--- Stroke (matches MainFrame)
 local PSFStroke = Instance.new("UIStroke")
 PSFStroke.Thickness = 1
 PSFStroke.Color = ACCENT
@@ -181,9 +173,6 @@ PSFButton.MouseButton1Click:Connect(function()
 end)
 
 -- ===== MAIN FRAME =====
--- CanvasGroup (not Frame) so the whole panel + its children can fade together
--- via GroupTransparency, and so minimizing can rely on its built-in clipping
--- instead of manually hiding every child element.
 MainFrame = Instance.new("CanvasGroup")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = LowServerFinder
@@ -366,7 +355,7 @@ UIPadding.PaddingRight = UDim.new(0, 6)
 UIPadding.PaddingBottom = UDim.new(0, 6)
 UIPadding.Parent = ServerListFrame
 
--- Server Entry Template (taller now, includes ping row)
+-- Server Entry Template
 local ServerFrameTemplate = Instance.new("Frame")
 ServerFrameTemplate.Name = "ServerFrame"
 ServerFrameTemplate.Parent = ServerListFrame
@@ -404,7 +393,6 @@ ServerName.TextScaled = true
 ServerName.TextWrapped = true
 ServerName.TextXAlignment = Enum.TextXAlignment.Left
 
--- Ping label (new)
 local ServerPing = Instance.new("TextLabel")
 ServerPing.Name = "ServerPing"
 ServerPing.Parent = ServerFrameTemplate
@@ -485,6 +473,9 @@ FooterText.TextScaled = true
 FooterText.TextWrapped = true
 FooterText.TextXAlignment = Enum.TextXAlignment.Center
 
+-- Track active teleport to prevent multiple attempts
+local isTeleporting = false
+
 local function createServerEntry(serverData, rank)
     local clone = ServerFrameTemplate:Clone()
     clone.Name = "ServerFrameClone"
@@ -499,21 +490,52 @@ local function createServerEntry(serverData, rank)
     local playersLabel = clone:FindFirstChild("ServerPlayers")
     playersLabel.Text = serverData.playing .. "/" .. serverData.maxPlayers
 
-    -- Ping, pulled straight from the API's own server.ping field
     local pingLabel = clone:FindFirstChild("ServerPing")
     local ping = math.floor(tonumber(serverData.ping) or 0)
     pingLabel.Text = ping .. "ms ping"
     if ping <= 80 then
-        pingLabel.TextColor3 = Color3.fromRGB(90, 200, 120)   -- good
+        pingLabel.TextColor3 = Color3.fromRGB(90, 200, 120)
     elseif ping <= 150 then
-        pingLabel.TextColor3 = Color3.fromRGB(230, 190, 80)   -- ok
+        pingLabel.TextColor3 = Color3.fromRGB(230, 190, 80)
     else
-        pingLabel.TextColor3 = Color3.fromRGB(230, 90, 90)    -- bad
+        pingLabel.TextColor3 = Color3.fromRGB(230, 90, 90)
     end
+
+    -- Store server info on the clone for later use
+    clone:SetAttribute("ServerId", serverData.id)
+    clone:SetAttribute("IsJoining", false)
 
     local joinBtn = clone:FindFirstChild("JoinButton")
     joinBtn.MouseButton1Click:Connect(function()
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverData.id, LocalPlayer)
+        -- Prevent multiple teleport attempts
+        if isTeleporting then return end
+        if clone:GetAttribute("IsJoining") then return end
+        
+        clone:SetAttribute("IsJoining", true)
+        joinBtn.Text = "..."
+        joinBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 50)
+        joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        local serverId = clone:GetAttribute("ServerId")
+        local success, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+        end)
+        
+        -- Reset button state after teleport attempt (or if it fails)
+        wait(0.5)
+        clone:SetAttribute("IsJoining", false)
+        joinBtn.Text = "JOIN"
+        joinBtn.BackgroundColor3 = SUCCESS
+        joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        if not success then
+            -- Teleport failed, show a brief error message in footer
+            FooterText.Text = "Failed to join: " .. (err or "Server may be full")
+            FooterText.TextColor3 = Color3.fromRGB(230, 90, 90)
+            wait(3)
+            FooterText.Text = CountBadge.Text .. " server" .. (tonumber(CountBadge.Text) == 1 and "" or "s") .. " found"
+            FooterText.TextColor3 = TEXT_SUB
+        end
     end)
 
     TweenService:Create(clone, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -526,10 +548,18 @@ local function fetchServers(cursor)
     if cursor then
         url = url .. "&cursor=" .. cursor
     end
-    local response = requestFunc({ Url = url, Method = "GET" })
-    if response and response.Body then
-        return HttpService:JSONDecode(response.Body)
+    local success, response = pcall(function()
+        return requestFunc({ Url = url, Method = "GET" })
+    end)
+    if success and response and response.Body then
+        local success2, data = pcall(function()
+            return HttpService:JSONDecode(response.Body)
+        end)
+        if success2 then
+            return data
+        end
     end
+    return nil
 end
 
 local isLoading = false
@@ -538,6 +568,7 @@ local function loadServersFast(showLoading)
     if isLoading then return end
     isLoading = true
 
+    -- Clear old entries
     for _, child in ipairs(ServerListFrame:GetChildren()) do
         if child.Name == "ServerFrameClone" then
             child:Destroy()
@@ -548,6 +579,7 @@ local function loadServersFast(showLoading)
         LoadingText.Visible = true
         LoadingText.Text = "Getting Servers..."
         FooterText.Text = "Searching..."
+        FooterText.TextColor3 = TEXT_SUB
     end
 
     local servers = {}
@@ -555,6 +587,7 @@ local function loadServersFast(showLoading)
     local pageCount = 0
     local maxPages = 1
 
+    local fetchSuccess = true
     repeat
         local data = fetchServers(cursor)
         if data and data.data then
@@ -564,9 +597,20 @@ local function loadServersFast(showLoading)
             cursor = data.nextPageCursor
             pageCount = pageCount + 1
         else
+            fetchSuccess = false
             break
         end
     until not cursor or pageCount >= maxPages
+
+    LoadingText.Visible = false
+
+    if not fetchSuccess then
+        FooterText.Text = "Error fetching servers"
+        FooterText.TextColor3 = Color3.fromRGB(230, 90, 90)
+        CountBadge.Text = "0"
+        isLoading = false
+        return
+    end
 
     local displayQueue = {}
     for _, server in ipairs(servers) do
@@ -575,13 +619,10 @@ local function loadServersFast(showLoading)
         end
     end
 
-    -- Sort by lowest ping first (same idea as the standalone auto-hop example,
-    -- applied across the whole list instead of picking just one)
     table.sort(displayQueue, function(a, b)
         return (tonumber(a.ping) or 999) < (tonumber(b.ping) or 999)
     end)
 
-    LoadingText.Visible = false
     CountBadge.Text = tostring(#displayQueue)
 
     if #displayQueue > 0 then
@@ -589,21 +630,25 @@ local function loadServersFast(showLoading)
             createServerEntry(server, i)
         end
         FooterText.Text = #displayQueue .. " server" .. (#displayQueue == 1 and "" or "s") .. " found"
+        FooterText.TextColor3 = TEXT_SUB
     else
-        FooterText.Text = "No servers found"
+        FooterText.Text = "No 1-player servers found"
+        FooterText.TextColor3 = TEXT_SUB
     end
 
     isLoading = false
 end
 
 Refresh.MouseButton1Click:Connect(function()
-    Refresh.Text = "Done"
+    Refresh.Text = "Refreshing..."
     spawn(function()
         wait(0.5)
         Refresh.Text = "Refresh"
     end)
 
+    -- Force reset loading state and clear list
     isLoading = false
+    isTeleporting = false
 
     for _, child in ipairs(ServerListFrame:GetChildren()) do
         if child.Name == "ServerFrameClone" then
@@ -612,10 +657,11 @@ Refresh.MouseButton1Click:Connect(function()
     end
 
     spawn(function()
-        loadServersFast(false)
+        loadServersFast(true)
     end)
 end)
 
+-- Initial load
 spawn(function()
     loadServersFast(true)
 end)
