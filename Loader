@@ -55,7 +55,7 @@ local function MakeDraggable(guiObject)
 end
 
 local LowServerFinder = Instance.new("ScreenGui")
-LowServerFinder.Name = "LowServerFinder"
+LowServerFinder.Name = "AreaGui"
 LowServerFinder.Parent = LocalPlayer:WaitForChild("PlayerGui")
 LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
