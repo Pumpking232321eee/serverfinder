@@ -512,7 +512,7 @@ local function createServerEntry(serverData, rank)
         if clone:GetAttribute("IsJoining") then return end
         
         clone:SetAttribute("IsJoining", true)
-        joinBtn.Text = "Joining..."
+        joinBtn.Text = "Joining.."
         joinBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 50)
         joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         
